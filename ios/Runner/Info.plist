@@ -33,7 +33,10 @@
 	<string>We need microphone access to record audio</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>We need access to save the recorded audio</string>
-
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app needs access to microphone for speech recognition</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>This app needs access to speech recognition to function</string>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>

@@ -1,9 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
-import 'package:flutter_tts/flutter_tts.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'dart:async';
+import 'package:intractivebot/screens/speech.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -13,186 +9,44 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final String defaultQuestion = 'What makes the internet essential?';
-  bool isListening = false;
-  bool isSpeaking = false;
-  bool isProcessingResponse = false;
-  bool isBotSpeaking = false;
-  bool hasAskedInitialQuestion = false;
-  String currentText = "";
-  String botResponse = "";
-  String lastRecognizedText = "";
-  Timer? speechTimer;
-  stt.SpeechToText speech = stt.SpeechToText();
-  FlutterTts flutterTts = FlutterTts();
+  late Speech speechService;
 
   @override
   void initState() {
     super.initState();
-    initializeSpeech();
-    initializeTts();
-    Future.delayed(const Duration(milliseconds: 1000), () {
-      speakInitialQuestion();
-    });
+    speechService = Speech(
+      setState: setState,
+      showError: showError,
+      mounted: mounted,
+    );
+    speechService.initialize();
   }
 
   @override
   void dispose() {
-    speechTimer?.cancel();
-    speech.stop();
-    flutterTts.stop();
+    speechService.dispose();
     super.dispose();
   }
 
-  Future<void> speakInitialQuestion() async {
+  void showError(String message) {
+    if (!mounted) return;
+    
     setState(() {
-      isBotSpeaking = true;
+      speechService.botResponse = message;
     });
-    await flutterTts.speak(defaultQuestion);
-  }
-
-  Future<void> initializeTts() async {
-    await flutterTts.setLanguage("en-US");
-    await flutterTts.setSpeechRate(0.5);
     
-    flutterTts.setCompletionHandler(() {
-      setState(() {
-        isBotSpeaking = false;
-        if (!hasAskedInitialQuestion) {
-          hasAskedInitialQuestion = true;
-          startContinuousListening();
-        }
-      });
-    });
-  }
-
-  Future<void> initializeSpeech() async {
-    bool available = await speech.initialize(
-      onStatus: (status) async {
-        if (status == 'done' || status == 'notListening') {
-          await Future.delayed(const Duration(milliseconds: 50));
-          if (mounted && hasAskedInitialQuestion) {
-            startContinuousListening();
-          }
-        }
-      },
-      onError: (error) async {
-        await Future.delayed(const Duration(milliseconds: 50));
-        if (mounted && hasAskedInitialQuestion) {
-          startContinuousListening();
-        }
-      },
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red[400],
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+      ),
     );
-    
-    if (available && !hasAskedInitialQuestion) {
-      setState(() {
-        isListening = false;
-      });
-    }
-  }
-
-  void startContinuousListening() async {
-    if (!speech.isListening && mounted && hasAskedInitialQuestion) {
-      try {
-        await speech.listen(
-          onResult: handleSpeechResult,
-          listenMode: stt.ListenMode.dictation,
-          cancelOnError: false,
-          partialResults: true,
-          listenFor: const Duration(hours: 1),
-        );
-        setState(() {
-          isListening = true;
-        });
-      } catch (e) {
-        await Future.delayed(const Duration(milliseconds: 50));
-        if (mounted && hasAskedInitialQuestion) {
-          startContinuousListening();
-        }
-      }
-    }
-  }
-
-  void handleSpeechResult(result) {
-    if (mounted) {
-      String recognizedWords = result.recognizedWords;
-      
-      if (recognizedWords.isNotEmpty) {
-        lastRecognizedText = recognizedWords;
-      }
-
-      if (isBotSpeaking && recognizedWords.isNotEmpty) {
-        flutterTts.stop();
-        setState(() {
-          isBotSpeaking = false;
-          botResponse = "";
-          currentText = recognizedWords;
-        });
-      }
-
-      setState(() {
-        currentText = recognizedWords;
-        isSpeaking = recognizedWords.isNotEmpty;
-      });
-      
-      speechTimer?.cancel();
-      
-      if (recognizedWords.isNotEmpty) {
-        speechTimer = Timer(const Duration(seconds: 2), () {
-          if (lastRecognizedText.isNotEmpty) {
-            sendToBackend(lastRecognizedText);
-            setState(() {
-              currentText = "";
-              lastRecognizedText = "";
-            });
-          }
-        });
-      }
-    }
-  }
-
-  Future<void> sendToBackend(String text) async {
-    if (isBotSpeaking) {
-      await flutterTts.stop();
-      setState(() {
-        isBotSpeaking = false;
-      });
-    }
-
-    const String backendUrl = "https://rampoth.pythonanywhere.com/process_text";
-    try {
-      setState(() {
-        isProcessingResponse = true;
-      });
-
-      var response = await http.post(
-        Uri.parse(backendUrl),
-        headers: {"Content-Type": "application/json"},
-        body: json.encode({'text': text}),
-      );
-
-      if (response.statusCode == 200 && mounted) {
-        var jsonResponse = json.decode(response.body);
-        String responseText = jsonResponse['response'];
-        
-        setState(() {
-          botResponse = responseText;
-          isBotSpeaking = true;
-        });
-        
-        await flutterTts.speak(responseText);
-      }
-      
-      setState(() {
-        isProcessingResponse = false;
-      });
-    } catch (e) {
-      setState(() {
-        isProcessingResponse = false;
-        botResponse = "Error processing your message. Please try again.";
-      });
-      await flutterTts.speak(botResponse);
-    }
   }
 
   @override
@@ -243,7 +97,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          defaultQuestion,
+                          speechService.defaultQuestion,
                           style: const TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
@@ -280,49 +134,49 @@ class _HomeScreenState extends State<HomeScreen> {
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: !hasAskedInitialQuestion
+                        color: !speechService.hasAskedInitialQuestion
                             ? Colors.green.withOpacity(0.2)
-                            : isSpeaking
+                            : speechService.isSpeaking
                                 ? Colors.blue.withOpacity(0.2)
-                                : isBotSpeaking
+                                : speechService.isBotSpeaking
                                     ? Colors.green.withOpacity(0.2)
                                     : Colors.grey.withOpacity(0.2),
                       ),
                       child: Icon(
-                        !hasAskedInitialQuestion
+                        !speechService.hasAskedInitialQuestion
                             ? Icons.record_voice_over
-                            : isSpeaking
+                            : speechService.isSpeaking
                                 ? Icons.mic
-                                : isBotSpeaking
+                                : speechService.isBotSpeaking
                                     ? Icons.speaker
                                     : Icons.hearing,
                         size: 40,
-                        color: !hasAskedInitialQuestion
+                        color: !speechService.hasAskedInitialQuestion
                             ? Colors.green
-                            : isSpeaking
+                            : speechService.isSpeaking
                                 ? Colors.blue
-                                : isBotSpeaking
+                                : speechService.isBotSpeaking
                                     ? Colors.green
                                     : Colors.grey,
                       ),
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      !hasAskedInitialQuestion
+                      !speechService.hasAskedInitialQuestion
                           ? "Bot is asking..."
-                          : isSpeaking
+                          : speechService.isSpeaking
                               ? "Speaking..."
-                              : isBotSpeaking
+                              : speechService.isBotSpeaking
                                   ? "Bot is responding..."
                                   : "Listening...",
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w600,
-                        color: !hasAskedInitialQuestion
+                        color: !speechService.hasAskedInitialQuestion
                             ? Colors.green
-                            : isSpeaking
+                            : speechService.isSpeaking
                                 ? Colors.blue
-                                : isBotSpeaking
+                                : speechService.isBotSpeaking
                                     ? Colors.green
                                     : Colors.grey,
                       ),
